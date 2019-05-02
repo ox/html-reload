@@ -1,0 +1,123 @@
+<style id="reload-indicator-style">
+#reload-indicator {
+    display: none;
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: green;
+    top: 10px;
+    right: 10px;
+}
+
+#reload-indicator.connected {
+    display: block;
+    animation: pulse 5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        display: block;
+        opacity: 0;
+    }
+
+    50% {
+        display: block;
+        opacity: 1;
+    }
+
+    100% {
+        display: block;
+        opacity: 0;
+    }
+}
+</style>
+
+<script type="application/javascript" class="loader">
+    const styleText = document.getElementById('reload-indicator-style').textContent;
+
+    // Reloader is loaded on the first fetch to /. It injects itself into the page vm,
+    // then "disappears" from the code on the next reload. It recreates the indicator,
+    // and it's style, on each reload.
+    function Reloader() {
+        this.websocket = null;
+
+        // Create an indicator
+        this.indicator = null;
+        this.lastPing = false;
+
+        this.createIndicator = () => {
+            this.indicator = document.createElement('div');
+            this.indicator.id = "reload-indicator";
+            document.body.appendChild(this.indicator);
+        }
+
+        this.addIndicatorStyle = () => {
+            const style = document.createElement('style');
+            style.textContent = styleText;
+            document.body.appendChild(style);
+        }
+
+        this.startHeartbeat = () => {
+            this.heartbeatInterval = setInterval(() => {
+                if (!this.websocket || this.websocket.readyState > 1) {
+                    clearInterval(this.heartbeatInterval);
+                    this.connect();
+                    return;
+                }
+
+                if (this.lastPing === false) {
+                    this.indicator.classList.remove('connected');
+                }
+
+                this.websocket.send(JSON.stringify({action: 'ping'}));
+            }, 1000);
+        }
+
+        this.connect = () => {
+            // Close the existing socket
+            if (this.websocket) {
+                this.websocket.close();
+            }
+
+            this.websocket = new WebSocket('ws://localhost:' + window.port + '/ws');
+            this.websocket.onopen = () => {
+                console.log('Websocket open');
+                this.createIndicator();
+                this.startHeartbeat();
+            };
+
+            this.websocket.onclose = () => {
+                console.log('Websocket closed');
+                this.indicator.classList.remove('connected');
+            }
+
+            this.websocket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                switch (msg.action) {
+                case 'reload':
+                    return fetch(window.index)
+                        .then((response) => response.text())
+                        .then((html) => {
+                            console.log('Replacing document');
+                            document.open();
+                            document.write(html);
+                            document.close();
+
+                            this.createIndicator();
+                            this.addIndicatorStyle();
+                        });
+                    break;
+                case 'pong':
+                    this.indicator.classList.add('connected');
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!window.reloader) {
+        window.reloader = new Reloader();
+        window.reloader.connect();
+    }
+</script>
